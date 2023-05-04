@@ -3,6 +3,7 @@ import pyaudio
 import wave
 import time
 import os
+from google.cloud import speech
 
 # Settings for julius
 JULIUS_HOST = 'localhost'
@@ -37,8 +38,6 @@ while True:
         if ('はろ' in line):
             # open audio stream
             print('[INFO] detect talk to me')
-            for i in range(audio.get_device_count()):
-                print(audio.get_device_info_by_index(i))
             stream = audio.open(format=A_FORMAT,rate=A_SAMPLE_RATE,channels=A_CHANNELS,input=True, frames_per_buffer=A_CHUNK)
             print('[INFO] recording start for ' + str(A_REC_SEC) + ' minutes')
             frames = []
@@ -56,7 +55,27 @@ while True:
             wavefile.setframerate(A_SAMPLE_RATE)
             wavefile.writeframes(b''.join(frames))
             wavefile.close()
-	
+            print('[INFO] saved .wav file')
+
+            # create speech to text settings
+            g_client = speech.SpeechClient()
+           
+            with open(A_OUTPUT_FILE, "rb") as speech_file:
+                g_content = speech_file.read()
+
+            g_audio = speech.RecognitionAudio(content=g_content)
+            g_config = speech.RecognitionConfig(encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,sample_rate_hertz=A_SAMPLE_RATE,language_code="ja-JP")
+            g_operation = g_client.long_running_recognize(config=g_config, audio=g_audio)
+           
+            # execute speech to text api
+            print('[INFO] execute GCP speech to text API...')
+            g_response = g_operation.result(timeout=90)
+            
+            speeched_text = ''
+            for result in g_response.results:
+                speeched_text += u"{ }".format(result.alternatives[0].transcript)
+            print(speeched_text)
+
     inputed = ''
 
 
