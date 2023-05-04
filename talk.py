@@ -5,6 +5,7 @@ import time
 import os
 from google.cloud import speech
 import openai
+import subprocess
 
 # Settings for julius
 JULIUS_HOST = 'localhost'
@@ -15,7 +16,7 @@ A_CHUNK = 1024 * 4
 A_FORMAT = pyaudio.paInt16
 A_CHANNELS = 1 # モノラル入力
 A_SAMPLE_RATE = 44100 # 44.1kHz サンプリング周波数
-A_REC_SEC = 5 # 録音秒数
+A_REC_SEC = 3 # 録音秒数
 A_OUTPUT_FILE = 'tmp/saved.wav'
 A_DEVICE_INDEX = 0
 
@@ -105,7 +106,10 @@ while True:
             o_response_text = o_response.choices[0]["message"]["content"].strip()
             messages.append({ "role": "assistant", "content": o_response_text })
             print(o_response_text)
-            
+
+            # sound response text
+            o_shell = "echo '" + o_response_text + "' | " + os.getenv("OPEN_JTALK_SHELL")
+            subprocess.run(o_shell, shell=True) 
 
     inputed = ''
 
