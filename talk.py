@@ -18,16 +18,23 @@ A_REC_SEC = 5 # 録音秒数
 A_OUTPUT_FILE = 'tmp/saved.wav'
 A_DEVICE_INDEX = 0
 
-
-print(os.getenv('COMMAND_JULIUS_MODULE'))
-
-
 # create pyaudio instance
 audio = pyaudio.PyAudio()
 
 # create connection for Julius server
 j_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 j_socket.connect((JULIUS_HOST, JULIUS_PORT))
+
+current_time = 0
+def measure_time_start():
+    global current_time
+    current_time = time.time()
+
+def measure_time_end():
+    global current_time
+    print(str(time.time() - current_time) + 'sec')
+
+
 
 inputed = ''
 while True:
@@ -49,6 +56,7 @@ while True:
             stream.close()
 
             # save to .wav
+            measure_time_start()
             wavefile = wave.open(A_OUTPUT_FILE, 'wb')
             wavefile.setnchannels(A_CHANNELS)
             wavefile.setsampwidth(audio.get_sample_size(A_FORMAT))
@@ -56,6 +64,7 @@ while True:
             wavefile.writeframes(b''.join(frames))
             wavefile.close()
             print('[INFO] saved .wav file')
+            measure_time_end()
 
             # create speech to text settings
             g_client = speech.SpeechClient()
@@ -69,12 +78,14 @@ while True:
            
             # execute speech to text api
             print('[INFO] execute GCP speech to text API...')
+            measure_time_start()
             g_response = g_operation.result(timeout=90)
-            
+            measure_time_end()
+
             speeched_text = ''
             for result in g_response.results:
-                speeched_text += u"{ }".format(result.alternatives[0].transcript)
-            print(speeched_text)
+                speeched_text += result.alternatives[0].transcript
+            print('[INFO] you talked: ' + speeched_text)
 
     inputed = ''
 
