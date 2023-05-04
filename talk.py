@@ -4,6 +4,7 @@ import wave
 import time
 import os
 from google.cloud import speech
+import openai
 
 # Settings for julius
 JULIUS_HOST = 'localhost'
@@ -35,7 +36,14 @@ def measure_time_end():
     print(str(time.time() - current_time) + 'sec')
 
 
-
+messages = [
+    {"role": "system", "content": "あなたは機動戦士ガンダムシリーズに登場する架空のロボット「ハロ」です。"},
+    {"role": "system", "content": "制約条件もとに回答してください。"},
+    {"role": "system", "content": "制約条件：回答は短い文章を2回繰り返す形で、「主語＋述語」の形で回答してください。"},
+    {"role": "system", "content": "制約条件：敬語は使用しないでください。"},
+    {"role": "system", "content": "制約条件：「〜です」「〜だ」「〜します」や口語は使用しないでください。"},
+    {"role": "system", "content": "例えば、「今日の天気は？」と聞いたら「今日は晴れ、今日は晴れ」のような形です。"}
+]
 inputed = ''
 while True:
     while (inputed.find('\n.') == -1):
@@ -86,6 +94,18 @@ while True:
             for result in g_response.results:
                 speeched_text += result.alternatives[0].transcript
             print('[INFO] you talked: ' + speeched_text)
+
+            # get open ai responce
+            openai.api_key = os.getenv('OPEN_API_KEY')
+            measure_time_start()
+            print('[INFO] execute open ai api') 
+            messages.append({ "role": "user", "content": speeched_text })
+            o_response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages)
+            measure_time_end()
+            o_response_text = o_response.choices[0]["message"]["content"].strip()
+            messages.append({ "role": "assistant", "content": o_response_text })
+            print(o_response_text)
+            
 
     inputed = ''
 
