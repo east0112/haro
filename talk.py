@@ -16,7 +16,7 @@ A_CHUNK = 1024 * 4
 A_FORMAT = pyaudio.paInt16
 A_CHANNELS = 1 # モノラル入力
 A_SAMPLE_RATE = 44100 # 44.1kHz サンプリング周波数
-A_REC_SEC = 3 # 録音秒数
+A_REC_SEC = 4 # 録音秒数
 A_OUTPUT_FILE = 'tmp/saved.wav'
 A_DEVICE_INDEX = 0
 
@@ -96,6 +96,9 @@ while True:
                 speeched_text += result.alternatives[0].transcript
             print('[INFO] you talked: ' + speeched_text)
 
+            if(len(speeched_text.strip()) == 0):
+                continue
+
             # get open ai responce
             openai.api_key = os.getenv('OPEN_API_KEY')
             measure_time_start()
@@ -108,8 +111,10 @@ while True:
             print(o_response_text)
 
             # sound response text
+            measure_time_start()
             o_shell = "echo '" + o_response_text + "' | " + os.getenv("OPEN_JTALK_SHELL")
-            subprocess.run(o_shell, shell=True) 
+            subprocess.run(o_shell, shell=True)
+            measure_time_end()
 
     inputed = ''
 
