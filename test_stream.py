@@ -93,7 +93,7 @@ def main():
     )
 
     streaming_config = speech.StreamingRecognitionConfig(
-        config=config, interim_results=True
+        config=config, single_utterance=True, interim_results=True
     )
 
     with MicrophoneStream(RATE, CHUNK) as stream:
@@ -110,6 +110,7 @@ def main():
         speeched_text = ''
         for response in responses:
             for result in response.results:
+                print(result)
                 if not result.is_final:
                     continue
                 speeched_text += result.alternatives[0].transcript

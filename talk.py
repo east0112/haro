@@ -3,19 +3,21 @@ import pyaudio
 import wave
 import time
 import os
-from google.cloud import speech
+from google.cloud import speech, speech_v1
 import openai
 import subprocess
+import threading
+from src import MicrophoneStream
 
 # Settings for julius
 JULIUS_HOST = 'localhost'
 JULIUS_PORT = 10500
 
 # Settings for pyaudio
-A_CHUNK = 1024 * 4
+A_SAMPLE_RATE = 16000
+A_CHUNK = int(A_SAMPLE_RATE / 10)
 A_FORMAT = pyaudio.paInt16
 A_CHANNELS = 1 # モノラル入力
-A_SAMPLE_RATE = 44100 # 44.1kHz サンプリング周波数
 A_REC_SEC = 4 # 録音秒数
 A_OUTPUT_FILE = 'tmp/saved.wav'
 A_DEVICE_INDEX = 0
@@ -34,7 +36,7 @@ def measure_time_start():
 
 def measure_time_end():
     global current_time
-    print(str(time.time() - current_time) + 'sec')
+    print('[INFO] ' + str(time.time() - current_time) + 'sec')
 
 
 messages = [
@@ -46,77 +48,76 @@ messages = [
     {"role": "system", "content": "例えば、「今日の天気は？」と聞いたら「今日は晴れ、今日は晴れ」のような形です。"}
 ]
 inputed = ''
-while True:
-    while (inputed.find('\n.') == -1):
-        inputed += j_socket.recv(1024).decode()
-    
-    for line in inputed.split('\n'):
-        if ('はろ' in line):
-            # open audio stream
-            print('[INFO] detect talk to me')
-            stream = audio.open(format=A_FORMAT,rate=A_SAMPLE_RATE,channels=A_CHANNELS,input=True, frames_per_buffer=A_CHUNK)
-            print('[INFO] recording start for ' + str(A_REC_SEC) + ' minutes')
-            frames = []
-            for i in range(0,int((A_SAMPLE_RATE/A_CHUNK)*A_REC_SEC)):
-                data = stream.read(A_CHUNK)
-                frames.append(data)
-            print('[INFO] recording finish')
-            stream.stop_stream()
-            stream.close()
+try:
+    while True:
+        while (inputed.find('\n.') == -1):
+            inputed += j_socket.recv(1024).decode()
+        
+        for line in inputed.split('\n'):
+            if ('はろ' in line):
+                g_client = speech.SpeechClient()
+                g_config = speech.RecognitionConfig(
+                    encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=A_SAMPLE_RATE,
+                    language_code="ja-JP"
+                )
+                g_streaming_config = speech.StreamingRecognitionConfig(
+                    config=g_config,
+                    single_utterance=True,
+                    enable_voice_activity_events=True,
+                    interim_results=True # If false, only is_final=true are returned.
+                )
 
-            # save to .wav
-            measure_time_start()
-            wavefile = wave.open(A_OUTPUT_FILE, 'wb')
-            wavefile.setnchannels(A_CHANNELS)
-            wavefile.setsampwidth(audio.get_sample_size(A_FORMAT))
-            wavefile.setframerate(A_SAMPLE_RATE)
-            wavefile.writeframes(b''.join(frames))
-            wavefile.close()
-            print('[INFO] saved .wav file')
-            measure_time_end()
+                print('[INFO] stream start')
+                speeched_text = ''
+                last_responsed_time = time.time()
+                with MicrophoneStream.MicrophoneStream(A_SAMPLE_RATE, A_CHUNK) as stream:
+                    audio_generator = stream.generator()
+                    requests = (
+                        speech.StreamingRecognizeRequest(audio_content=content)
+                        for content in audio_generator
+                    )
 
-            # create speech to text settings
-            g_client = speech.SpeechClient()
-           
-            with open(A_OUTPUT_FILE, "rb") as speech_file:
-                g_content = speech_file.read()
+                    responses = g_client.streaming_recognize(g_streaming_config, requests)
 
-            g_audio = speech.RecognitionAudio(content=g_content)
-            g_config = speech.RecognitionConfig(encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,sample_rate_hertz=A_SAMPLE_RATE,language_code="ja-JP")
-            g_operation = g_client.long_running_recognize(config=g_config, audio=g_audio)
-           
-            # execute speech to text api
-            print('[INFO] execute GCP speech to text API...')
-            measure_time_start()
-            g_response = g_operation.result(timeout=90)
-            measure_time_end()
+                    event_start = False
+                    event_end = False
+                    is_final = False
+                    for response in responses:
+                        for result in response.results:
+                            event_start = True
+                            if not result.is_final:
+                                continue
+                            speeched_text += result.alternatives[0].transcript
+                            is_final = True
+                        print('[INFO] you talked: ' + speeched_text)
+                        if str(response.speech_event_type) == 'SpeechEventType.END_OF_SINGLE_UTTERANCE' or str(response.speech_event_type) == 'SpeechEventType.SPEECH_ACTIVITY_END':
+                            event_end = True
+                        if (event_start == False and event_end) or (is_final and event_end):
+                            print('break')
+                            break
 
-            speeched_text = ''
-            for result in g_response.results:
-                speeched_text += result.alternatives[0].transcript
-            print('[INFO] you talked: ' + speeched_text)
+                if(len(speeched_text.strip()) == 0):
+                    print('[WARN] no speech')
+                    continue
 
-            if(len(speeched_text.strip()) == 0):
-                continue
+                # get open ai responce
+                openai.api_key = os.getenv('OPEN_API_KEY')
+                measure_time_start()
+                print('[INFO] execute open ai api') 
+                messages.append({ "role": "user", "content": speeched_text })
+                o_response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages)
+                measure_time_end()
+                o_response_text = o_response.choices[0]["message"]["content"].strip()
+                messages.append({ "role": "assistant", "content": o_response_text })
+                print('[AI]' + o_response_text)
 
-            # get open ai responce
-            openai.api_key = os.getenv('OPEN_API_KEY')
-            measure_time_start()
-            print('[INFO] execute open ai api') 
-            messages.append({ "role": "user", "content": speeched_text })
-            o_response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages)
-            measure_time_end()
-            o_response_text = o_response.choices[0]["message"]["content"].strip()
-            messages.append({ "role": "assistant", "content": o_response_text })
-            print(o_response_text)
+                # sound response text
+                measure_time_start()
+                o_shell = "echo '" + o_response_text + "' | " + os.getenv("OPEN_JTALK_SHELL")
+                subprocess.run(o_shell, shell=True)
+                measure_time_end()
 
-            # sound response text
-            measure_time_start()
-            o_shell = "echo '" + o_response_text + "' | " + os.getenv("OPEN_JTALK_SHELL")
-            subprocess.run(o_shell, shell=True)
-            measure_time_end()
-
-    inputed = ''
-
-
-audio.terminate()
+        inputed = ''
+except KeyboardInterrupt:
+    audio.terminate()
